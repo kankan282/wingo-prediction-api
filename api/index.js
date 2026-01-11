@@ -1,11 +1,10 @@
-const { generatePrediction, getStats } = require('../lib/ensembleEngine');
+const { predict, getStats } = require('../lib/engine');
 
 /**
- * Main Vercel Serverless Function
- * Ultra-fast prediction API with win/loss tracking
+ * Vercel Serverless Function
  */
 module.exports = async (req, res) => {
-  // Set CORS headers
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -16,19 +15,18 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
   
-  const startTime = Date.now();
+  const start = Date.now();
   
   try {
-    // Route handling
-    const path = req.url.split('?')[0];
+    const url = req.url || '/';
+    const path = url.split('?')[0];
     
-    // Health check endpoint
+    // Health check
     if (path === '/api/health' || path === '/api/') {
       return res.status(200).json({
         status: 'healthy',
-        service: 'WinGo Prediction Engine',
+        service: 'WinGo Prediction API',
         version: '2.0.0',
-        uptime: process.uptime(),
         timestamp: new Date().toISOString()
       });
     }
@@ -36,67 +34,63 @@ module.exports = async (req, res) => {
     // Stats endpoint
     if (path === '/api/stats') {
       const stats = await getStats();
-      const executionTime = Date.now() - startTime;
-      
       return res.status(200).json({
         ...stats,
-        executionTime: `${executionTime}ms`
+        executionTime: `${Date.now() - start}ms`,
+        timestamp: new Date().toISOString()
       });
     }
     
     // Main prediction endpoint
     if (path === '/api/predict' || path === '/api') {
-      const predictionResult = await generatePrediction();
-      const executionTime = Date.now() - startTime;
+      const result = await predict();
       
-      // Format response
       const response = {
         success: true,
-        message: predictionResult.winLoss 
-          ? `Previous prediction: ${predictionResult.winLoss.status}! 🎯`
-          : 'First prediction - no previous data to compare',
         
-        // Win/Loss tracking
-        previousResult: predictionResult.winLoss || null,
+        // Previous result
+        ...(result.winLoss ? {
+          previousPrediction: result.winLoss
+        } : {
+          message: 'First prediction - no previous data'
+        }),
         
         // Next prediction
         nextPrediction: {
-          result: predictionResult.nextPrediction.prediction,
-          confidence: `${predictionResult.nextPrediction.confidence}%`,
-          forIssue: predictionResult.nextPrediction.nextIssue,
-          basedOnModels: predictionResult.nextPrediction.modelCount,
-          modelBreakdown: predictionResult.nextPrediction.breakdown
+          result: result.next.prediction,
+          confidence: `${result.next.confidence}%`,
+          forIssue: result.next.forIssue,
+          basedOn: `${result.next.models} models`,
+          votes: result.next.votes
         },
         
-        // Performance metrics
+        // Performance
         performance: {
-          historicalAccuracy: `${predictionResult.historicalAccuracy.accuracy}%`,
-          testedOn: predictionResult.historicalAccuracy.testedPredictions,
-          correctPredictions: predictionResult.historicalAccuracy.correctPredictions,
-          dataPointsAnalyzed: predictionResult.dataPoints,
-          executionTime: `${executionTime}ms`
+          historicalAccuracy: `${result.accuracy.rate}%`,
+          testedOn: `${result.accuracy.tested} predictions`,
+          correctPredictions: result.accuracy.correct,
+          dataPoints: result.dataPoints,
+          executionTime: `${Date.now() - start}ms`
         },
         
-        // Latest actual data
-        latestDrawn: predictionResult.latestData,
+        // Latest drawn
+        latestDrawn: result.latest,
         
         // Disclaimer
-        disclaimer: '⚠️ For educational purposes only. No algorithm can guarantee random outcomes.',
-        
-        timestamp: predictionResult.timestamp
+        disclaimer: '⚠️ Educational only. Cannot predict random outcomes.',
+        timestamp: new Date().toISOString()
       };
       
       return res.status(200).json(response);
     }
     
-    // 404 for unknown routes
+    // 404
     return res.status(404).json({
-      success: false,
-      error: 'Endpoint not found',
+      error: 'Not Found',
       availableEndpoints: [
-        '/api/predict - Get next prediction with win/loss tracking',
-        '/api/stats - Get current statistics',
-        '/api/health - Health check'
+        'GET /api/predict - Main prediction',
+        'GET /api/stats - Statistics',
+        'GET /api/health - Health check'
       ]
     });
     
@@ -106,8 +100,7 @@ module.exports = async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message,
-      timestamp: new Date().toISOString(),
-      executionTime: `${Date.now() - startTime}ms`
+      timestamp: new Date().toISOString()
     });
   }
 };
